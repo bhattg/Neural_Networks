@@ -1,6 +1,29 @@
 import numpy as np # linear algebra
 import pandas as pd 
 import os
+import copy
+
+def make_batches(X_train, Y_train, batch_size=32):
+    m= X_train.shape[0]
+    num_batches=0
+    batch_list=[]
+    if m%batch_size==0:
+        num_batches=(int)(m/batch_size)
+    else:
+        num_batches=int(int(m)/int(batch_size))+1
+    for i in range(0,int(num_batches)):
+        start_index= i*batch_size
+        if i==num_batches-1:
+            end_index=m
+        else :
+            end_index=(i+1)*batch_size
+        X_temp= X_train[start_index:end_index, :]
+        Y_temp= Y_train[start_index:end_index, :]
+        batch_list.append([X_temp, Y_temp])
+    np.random.shuffle(batch_list)
+    return batch_list
+
+
 class Neural_Network:
     
     def __compute_num_layers(self):
@@ -19,12 +42,12 @@ class Neural_Network:
         return (t-1)/(t+1)
 
     def __binary_crossentropy(self,AL, Y):
-        m= Y.shape[1]
+        m= Y.shape[0]
         cost= np.squeeze(-np.sum((np.multiply(Y, np.log(AL))+ np.multiply((1-Y), np.log(1-AL))))/m);assert cost.shape==()
         return cost
     
     def __categorical_crossentropy(self,AL, Y):
-        m= Y.shape[1]
+        m= Y.shape[0]
         cost= - np.sum(np.multiply(Y, np.log(AL)))/m
         cost= np.squeeze(cost)
         assert cost.shape==()
@@ -44,18 +67,33 @@ class Neural_Network:
         else:
             print("Errrrrrrrrrrrr, give a proper loss metric")
             return None
+        
+    def compute_cost(self,loss="binary_crossentropy"):  
+        last_layer_index= self.__compute_num_layers()
+        AL= self.activation_preactivation_cache['A'+str(last_layer_index)]
+        Y= self.Y_train
+        assert AL.shape==Y.shape
+        if loss== "categorical_crossentropy":
+            cost= self.__categorical_crossentropy(AL, Y)
+            return cost
+        elif loss=="binary_crossentropy":
+            cost= self.__binary_crossentropy(AL, Y)
+            return cost
+        else:
+            print("Errrrrrrrrrrrr, give a proper loss metric")
+            return None
 
     def __init_layer(self):
         #This will return a cache(a dictionary) of Initialized weights per-layer and also the biases per layer
         # the shape list will have layers including the input layer dimensions. 
         for i in range(1, len(self.shape_list)):
             self.weight_bias_cache['W'+str(i)]= np.random.normal(0,np.sqrt(1/self.shape_list[i-1]), (self.shape_list[i-1],self.shape_list[i]))
-            self.weight_bias_cache['b'+str(i)]= np.zeros((self.shape_list[i], 1))
+            self.weight_bias_cache['b'+str(i)]= np.zeros((1,self.shape_list[i]))
     
     def __forward_propagate_layer(self,A_prev, layer_number,activation='relu'):
         Wl= self.weight_bias_cache['W'+str(layer_number)]
         bl= self.weight_bias_cache['b'+str(layer_number)]
-        Z= np.matmul(Wl.T, A_prev)+ bl
+        Z= np.dot(A_prev, Wl)+ bl
         if activation== 'relu':
             A = self.__relu(Z)
         elif activation=='tanh':
@@ -67,6 +105,12 @@ class Neural_Network:
         
 
     def __forward_propagation(self):
+        A_prev= self.X_train
+        for i in range(1, len(self.shape_list)):
+            self.__forward_propagate_layer(A_prev,i,activation=self.activation_list[i-1])  
+            A_prev= self.activation_preactivation_cache["A"+str(i)]
+    
+    def forward_propagation(self):
         A_prev= self.X_train
         for i in range(1, len(self.shape_list)):
             self.__forward_propagate_layer(A_prev,i,activation=self.activation_list[i-1])  
@@ -108,10 +152,10 @@ class Neural_Network:
     def __layer_backwards(self,dZ, layer_input_tuple):
         #layer input tuple contains the value of b, A_prev, W matrixx
         A_prev, W, b = layer_input_tuple
-        m= A_prev.shape[1]
-        dW= np.dot(dZ, A_prev.T).T/m
-        db=np.sum(dZ, axis=1, keepdims=True)/m
-        dA_prev=  np.dot(W, dZ)
+        m= A_prev.shape[0]
+        dW= np.dot(A_prev.T,dZ)/m
+        db=np.sum(dZ, axis=0, keepdims=True)/m
+        dA_prev=  np.dot(dZ, W.T)
         return dA_prev, dW, db
 
     def __backpropagation(self):
@@ -134,11 +178,13 @@ class Neural_Network:
         
     def __update_parameters(self):
         for i in range(1, len(self.shape_list)):
+            
             self.weight_bias_cache['W'+str(i)]-= self.learning_rate*self.gradient_cache['dW'+str(i)]
             self.weight_bias_cache['b'+str(i)]-= self.learning_rate*self.gradient_cache['db'+str(i)]
 
-    def __init__(self, shape_list,activation_list,epochs=20,loss='binary_crossentropy',learning_rate=0.01):
+    def __init__(self, shape_list,activation_list,epochs=20,loss='binary_crossentropy',learning_rate=0.01,verbose=False):
         self.cost=[]
+        self.verbose=verbose
         self.activation_preactivation_cache={}
         self.gradient_cache={}
         self.shape_list=shape_list
@@ -149,19 +195,20 @@ class Neural_Network:
         self.loss=loss
         self.__init_layer()
         
-    def fit(self,X_train, Y_train):
+    def fit(self,X_train,Y_train):
         self.X_train=X_train
         self.Y_train=Y_train
         for i in range(0, self.epochs):
             self.__forward_propagation()
             self.cost.append(self.__compute_cost())
+            if self.verbose:
+                print(self.cost[-1])
             self.__backpropagation()
             self.__update_parameters()
-    
 
 ################ Partial Testing code################
 
 X_train=np.reshape(np.array([1,2,3,4,5,6,7,8,9]), (3,3))
-Y_train= np.reshape(np.array([1,1,0]), (1,3))
+Y_train= np.reshape(np.array([1,1,0]), (3,1))
 clf= Neural_Network(shape_list=[3,2,1], activation_list=['relu','sigmoid'])
 clf.fit(X_train, Y_train)
