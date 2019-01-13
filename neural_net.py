@@ -1,160 +1,167 @@
 import numpy as np # linear algebra
 import pandas as pd 
 import os
-
-def compute_num_layers(shape_list):
-    return len(shape_list)-1
-
-def sigmoid(X):
-    return 1/(1+np.exp(-X))
-
-def relu(X): 
-    Z= np.copy(X)
-    Z[X<0]=0
-    return Z
-
-def tanh(X):
-    t=np.exp(2*X)
-    return (t-1)/(t+1)
-
-def binary_crossentropy(AL, Y):
-    m= Y.shape[1]
-    cost= np.squeeze(-np.sum((np.multiply(Y, np.log(AL))+ np.multiply((1-Y), np.log(1-AL))))/m)
-    assert cost.shape==()
-    return cost
+class Neural_Network:
     
-def categorical_crossentropy(AL, Y):
-    m= Y.shape[1]
-    cost= - np.sum(np.multiply(Y, np.log(AL)))/m
-    cost= np.squeeze(cost)
-    assert cost.shape==()
-    return cost
+    def __compute_num_layers(self):
+        return len(self.shape_list)-1
 
-def compute_cost(AL, Y, loss="binary_crossentropy"):  
-    
-    assert AL.shape==Y.shape
-    if loss== "categorical_crossentropy":
-        cost= categorical_crossentropy(AL, Y)
+    def __sigmoid(self,X):
+        return 1/(1+np.exp(-X))
+
+    def __relu(self,X): 
+        Z= np.copy(X)
+        Z[X<0]=0
+        return Z
+
+    def __tanh(self,X):
+        t=np.exp(2*X)
+        return (t-1)/(t+1)
+
+    def __binary_crossentropy(self,AL, Y):
+        m= Y.shape[1]
+        cost= np.squeeze(-np.sum((np.multiply(Y, np.log(AL))+ np.multiply((1-Y), np.log(1-AL))))/m);assert cost.shape==()
         return cost
-    elif loss=="binary_crossentropy":
-        cost= binary_crossentropy(AL, Y)
+    
+    def __categorical_crossentropy(self,AL, Y):
+        m= Y.shape[1]
+        cost= - np.sum(np.multiply(Y, np.log(AL)))/m
+        cost= np.squeeze(cost)
+        assert cost.shape==()
         return cost
-    else:
-        print("Errrrrrrrrrrrr, give a proper loss metric")
-        return None
+
+    def __compute_cost(self,loss="binary_crossentropy"):  
+        last_layer_index= self.__compute_num_layers()
+        AL= self.activation_preactivation_cache['A'+str(last_layer_index)]
+        Y= self.Y_train
+        assert AL.shape==Y.shape
+        if loss== "categorical_crossentropy":
+            cost= self.__categorical_crossentropy(AL, Y)
+            return cost
+        elif loss=="binary_crossentropy":
+            cost= self.__binary_crossentropy(AL, Y)
+            return cost
+        else:
+            print("Errrrrrrrrrrrr, give a proper loss metric")
+            return None
+
+    def __init_layer(self):
+        #This will return a cache(a dictionary) of Initialized weights per-layer and also the biases per layer
+        # the shape list will have layers including the input layer dimensions. 
+        for i in range(1, len(self.shape_list)):
+            self.weight_bias_cache['W'+str(i)]= np.random.normal(0,np.sqrt(1/self.shape_list[i-1]), (self.shape_list[i-1],self.shape_list[i]))
+            self.weight_bias_cache['b'+str(i)]= np.zeros((self.shape_list[i], 1))
     
-def init_layer(shape_list):
-    #This will return a cache(a dictionary) of Initialized weights per-layer and also the biases per layer
-    # the shape list will have layers including the input layer dimensions. 
-    weight_bias_cache={}
-    for i in range(1, len(shape_list)):
-        weight_bias_cache['W'+str(i)]= np.random.normal(0,np.sqrt(1/shape_list[i-1]), (shape_list[i-1],shape_list[i]))
-        weight_bias_cache['b'+str(i)]= np.zeros((shape_list[i], 1))
-    return weight_bias_cache
+    def __forward_propagate_layer(self,A_prev, layer_number,activation='relu'):
+        Wl= self.weight_bias_cache['W'+str(layer_number)]
+        bl= self.weight_bias_cache['b'+str(layer_number)]
+        Z= np.matmul(Wl.T, A_prev)+ bl
+        if activation== 'relu':
+            A = self.__relu(Z)
+        elif activation=='tanh':
+            A= self.__tanh(Z)
+        else:
+            A= self.__sigmoid(Z)
+        self.activation_preactivation_cache['A'+str(layer_number)]= A  
+        self.activation_preactivation_cache['Z'+str(layer_number)]= Z
+        
 
-def forward_propagate_layer(A_prev, weight_bias_cache, layer_number,activation_preactivation_cache,activation='relu'):
-    Wl= weight_bias_cache['W'+str(layer_number)]
-    bl= weight_bias_cache['b'+str(layer_number)]
-    Z= np.matmul(Wl.T, A_prev)+ bl
-    if activation== 'relu':
-        A = relu(Z)
-    elif activation=='tanh':
-        A= tanh(Z)
-    else:
-        A= sigmoid(Z)
-    activation_preactivation_cache['A'+str(layer_number)]= A  
-    activation_preactivation_cache['Z'+str(layer_number)]= Z
-    return activation_preactivation_cache
-
-def forward_propagation(shape_list, weight_bias_cache, X_input, activation_list):
-    A_prev= X_input
-    activation_preactivation_cache={}
-    for i in range(1, len(shape_list)):
-        activation_preactivation_cache=forward_propagate_layer(A_prev,weight_bias_cache,i,activation_preactivation_cache,activation=activation_list[i-1])  
-        A_prev= activation_preactivation_cache["A"+str(i)]
-    return activation_preactivation_cache
-
-def dAL_binary_cross_entropy(Y, activation_preactivation_cache, shape_list, gradient_cache):
-    num_layers= compute_num_layers(shape_list)
-    AL= activation_preactivation_cache['A'+str(num_layers)]
-    dAL = - (np.divide(Y, AL) - np.divide(1 - Y, 1 - AL))
-    gradient_cache['dA'+str(num_layers)]= dAL
-    return gradient_cache
-
-def sigmoid_backwards(Z,A, dA):
-    #computes the gradient of the cost function with respect to the Z, if the activation of layer is sigmoid/''
-    #note that,dA is the gradient wrt the same layer Activation 
-    #whose gradient wrt Z we are evaluating
-    assert A.shape==dA.shape
-    assert Z.shape==A.shape
-    dAdZ = np.multiply(A, (1-A))
-    dZ= np.multiply(dA, dAdZ)
-    assert dA.shape==dZ.shape
-    return dZ
-
-def relu_backwards(Z,A,dA):
-    assert A.shape==dA.shape
-    assert Z.shape==A.shape
-    dZ= np.copy(Z)
-    dZ[Z<0] =0
-    dZ[Z>=0]=1
-    dZ=np.multiply(dZ,dA) #chain rule
-    return dZ
-
-def activation_backwards(Z,A,dA,activation):
-    if activation== 'sigmoid':
-        return sigmoid_backwards(Z,A,dA)
-    else:
-        return relu_backwards(Z,A,dA)
+    def __forward_propagation(self):
+        A_prev= self.X_train
+        for i in range(1, len(self.shape_list)):
+            self.__forward_propagate_layer(A_prev,i,activation=self.activation_list[i-1])  
+            A_prev= self.activation_preactivation_cache["A"+str(i)]
     
-def layer_backwards(dZ, layer_input_tuple):
-    #layer input tuple contains the value of b, A_prev, W matrixx
-    A_prev, W, b = layer_input_tuple
-    m= A_prev.shape[1]
-    dW= np.dot(dZ, A_prev.T).T/m
-    db=np.sum(dZ, axis=1, keepdims=True)/m
-    dA_prev=  np.dot(W, dZ)
-    return dA_prev, dW, db
+    
+    def __dAL_binary_cross_entropy(self,Y):
+        num_layers= self.__compute_num_layers()
+        AL= self.activation_preactivation_cache['A'+str(num_layers)]
+        dAL = - (np.divide(Y, AL) - np.divide(1 - Y, 1 - AL))
+        self.gradient_cache['dA'+str(num_layers)]= dAL
 
-def backpropagation(X_input, Y, activation_preactivation_cache, activation_list, shape_list, weight_bias_cache):
-    gradient_cache={}
-    gradient_cache= dAL_binary_cross_entropy(Y, activation_preactivation_cache, shape_list, gradient_cache)
-    activation_preactivation_cache['A0']= X_input
-    L= len(shape_list)
-    for i in reversed(range(1,L)):
-        Z= activation_preactivation_cache['Z'+str(i)]
-        A= activation_preactivation_cache['A'+str(i)]
-        A_prev=activation_preactivation_cache['A'+str(i-1)]
-        W= weight_bias_cache['W'+str(i)]
-        b= weight_bias_cache['b'+str(i)]
-        dA= gradient_cache['dA'+str(i)]
-        dZ= activation_backwards(Z,A,dA,activation_list[i-1])
-        gradient_cache['dZ'+str(i)]= dZ
-        dA_prev, dW, db= layer_backwards(dZ,(A_prev,W,b))
-        gradient_cache['dW'+str(i)]=dW
-        gradient_cache['db'+str(i)]=db
-        gradient_cache['dA'+str(i-1)]=dA_prev
-    return gradient_cache
+    def __sigmoid_backwards(self,Z,A, dA): 
+        #computes the gradient of the cost function with respect to the Z, if the activation of layer is sigmoid/''
+        #note that,dA is the gradient wrt the same layer Activation 
+        #whose gradient wrt Z we are evaluating
+        assert A.shape==dA.shape
+        assert Z.shape==A.shape
+        dAdZ = np.multiply(A, (1-A))
+        dZ= np.multiply(dA, dAdZ)
+        assert dA.shape==dZ.shape
+        return dZ
 
-def gradient_descent(weight_bias_cache, gradient_cache, shape_list,learning_rate=0.01):
-    for i in range(1, len(shape_list)):
-        weight_bias_cache['W'+str(i)]-= learning_rate*gradient_cache['dW'+str(i)]
-        weight_bias_cache['b'+str(i)]-= learning_rate*gradient_cache['db'+str(i)]
-    return weight_bias_cache
+    def __relu_backwards(self,Z,A,dA):
+        assert A.shape==dA.shape
+        assert Z.shape==A.shape
+        dZ= np.copy(Z)
+        dZ[Z<0] =0
+        dZ[Z>=0]=1
+        dZ=np.multiply(dZ,dA) #chain rule
+        return dZ
+
+    def __activation_backwards(self,Z,A,dA,activation):
+        if activation== 'sigmoid':
+            return self.__sigmoid_backwards(Z,A,dA)
+        else:
+            return self.__relu_backwards(Z,A,dA)
+
+    def __layer_backwards(self,dZ, layer_input_tuple):
+        #layer input tuple contains the value of b, A_prev, W matrixx
+        A_prev, W, b = layer_input_tuple
+        m= A_prev.shape[1]
+        dW= np.dot(dZ, A_prev.T).T/m
+        db=np.sum(dZ, axis=1, keepdims=True)/m
+        dA_prev=  np.dot(W, dZ)
+        return dA_prev, dW, db
+
+    def __backpropagation(self):
+        self.__dAL_binary_cross_entropy(self.Y_train)
+        self.activation_preactivation_cache['A0']= self.X_train
+        L= len(self.shape_list)
+        for i in reversed(range(1,L)):
+            Z= self.activation_preactivation_cache['Z'+str(i)]
+            A= self.activation_preactivation_cache['A'+str(i)]
+            A_prev=self.activation_preactivation_cache['A'+str(i-1)]
+            W= self.weight_bias_cache['W'+str(i)]
+            b= self.weight_bias_cache['b'+str(i)]
+            dA= self.gradient_cache['dA'+str(i)]
+            dZ= self.__activation_backwards(Z,A,dA,self.activation_list[i-1])
+            self.gradient_cache['dZ'+str(i)]= dZ
+            dA_prev, dW, db= self.__layer_backwards(dZ,(A_prev,W,b))
+            self.gradient_cache['dW'+str(i)]=dW
+            self.gradient_cache['db'+str(i)]=db
+            self.gradient_cache['dA'+str(i-1)]=dA_prev
+        
+    def __update_parameters(self):
+        for i in range(1, len(self.shape_list)):
+            self.weight_bias_cache['W'+str(i)]-= self.learning_rate*self.gradient_cache['dW'+str(i)]
+            self.weight_bias_cache['b'+str(i)]-= self.learning_rate*self.gradient_cache['db'+str(i)]
+
+    def __init__(self, shape_list,activation_list,epochs=20,loss='binary_crossentropy',learning_rate=0.01):
+        self.cost=[]
+        self.activation_preactivation_cache={}
+        self.gradient_cache={}
+        self.shape_list=shape_list
+        self.weight_bias_cache={}
+        self.activation_list=activation_list
+        self.learning_rate=learning_rate
+        self.epochs=epochs
+        self.loss=loss
+        self.__init_layer()
+        
+    def fit(self,X_train, Y_train):
+        self.X_train=X_train
+        self.Y_train=Y_train
+        for i in range(0, self.epochs):
+            self.__forward_propagation()
+            self.cost.append(self.__compute_cost())
+            self.__backpropagation()
+            self.__update_parameters()
+    
 
 ################ Partial Testing code################
-X_input= np.array([1, 2, 3, 4, 5, 6,7,8,9]); X_input= np.reshape(X_input, (3,3))
-Y_input=np.array([1, 0, 1]); Y_input=np.reshape(Y_input, (1,3))
-shape_list=[3,2,1]
-cost=[]
-activation_list=['relu','sigmoid']
-weight_bias_cache= init_layer(shape_list)
 
-for i in range(0,10):
-    activation_preactivation_cache= forward_propagation(shape_list,weight_bias_cache,X_input,activation_list)
-    gradient_cache= backpropagation(X_input, Y_input,activation_preactivation_cache,activation_list,shape_list,weight_bias_cache)
-    cost.append(compute_cost(activation_preactivation_cache['A'+str(len(shape_list)-1)], Y_input))
-    gradient_descent(weight_bias_cache,gradient_cache,shape_list)
-
-
-print(cost)
+X_train=np.reshape(np.array([1,2,3,4,5,6,7,8,9]), (3,3))
+Y_train= np.reshape(np.array([1,1,0]), (1,3))
+clf= Neural_Network(shape_list=[3,2,1], activation_list=['relu','sigmoid'])
+clf.fit(X_train, Y_train)
