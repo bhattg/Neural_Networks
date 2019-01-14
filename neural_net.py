@@ -23,7 +23,6 @@ def make_batches(X_train, Y_train, batch_size=32):
     np.random.shuffle(batch_list)
     return batch_list
 
-
 class Neural_Network:
     
     def __compute_num_layers(self):
@@ -182,7 +181,7 @@ class Neural_Network:
             self.weight_bias_cache['W'+str(i)]-= self.learning_rate*self.gradient_cache['dW'+str(i)]
             self.weight_bias_cache['b'+str(i)]-= self.learning_rate*self.gradient_cache['db'+str(i)]
 
-    def __init__(self, shape_list,activation_list,epochs=20,loss='binary_crossentropy',learning_rate=0.01,verbose=False):
+    def __init__(self, shape_list,activation_list,epochs=20,loss='binary_crossentropy',learning_rate=0.001,verbose=False):
         self.cost=[]
         self.verbose=verbose
         self.activation_preactivation_cache={}
@@ -205,10 +204,70 @@ class Neural_Network:
                 print(self.cost[-1])
             self.__backpropagation()
             self.__update_parameters()
+            
+    def __forward_propagate_prediction(self):
+        A_prev= self.X_test
+        for i in range(1, len(self.shape_list)):
+            self.__forward_propagate_layer(A_prev,i,activation=self.activation_list[i-1])  
+            A_prev= self.activation_preactivation_cache["A"+str(i)]
+        AL= self.activation_preactivation_cache['A'+str(len(self.shape_list)-1)]
+        return AL
+    
+    def predict(self, X_test):
+        self.X_test=X_test
+        AL= self.__forward_propagate_prediction()
+        Y_hat= np.copy(AL)
+        if self.activation_list[-1]=='sigmoid':
+            Y_hat[AL<0.5]=0
+            Y_hat[AL>0.5]=1
+            return Y_hat
+        else:
+            print('softmax yet to be implemented')
+            return 
+        
+        
+    def score(self,X_test, Y_test):
+        self.X_test=X_test
+        AL= self.__forward_propagate_prediction()
+        Y_hat= np.copy(AL)
+        if self.activation_list[-1]=='sigmoid':
+            Y_hat[AL<0.5]=0
+            Y_hat[AL>0.5]=1
+        assert Y_hat.shape==Y_test.shape
+        Y=np.equal(Y_hat, Y_test)
+        return np.sum(Y)/Y_test.shape[0]
+        
 
 ################ Partial Testing code################
+X_all, Y_all= load_breast_cancer(return_X_y=True)
+from sklearn.model_selection import train_test_split
+X_train, X_test, Y_train, Y_test= train_test_split(X_all, Y_all, test_size=0.2, random_state=22)
+Y_train= np.reshape(Y_train, (Y_train.shape[0], 1))
+Y_test= np.reshape(Y_test, (Y_test.shape[0], 1))
+from sklearn.preprocessing import StandardScaler
+s= StandardScaler()
+s.fit(X_train)
+X_train= s.transform(X_train)
+X_test= s.transform(X_test)
 
-X_train=np.reshape(np.array([1,2,3,4,5,6,7,8,9]), (3,3))
-Y_train= np.reshape(np.array([1,1,0]), (3,1))
-clf= Neural_Network(shape_list=[3,2,1], activation_list=['relu','sigmoid'])
+########from our implementation
+
+mini=110.0; maxa=0.0
+for i in range(0, 100):
+    nn= Neural_Network([30,20,10,5, 1], ['relu','relu','relu', 'sigmoid'],epochs=50)
+    nn.fit(X_train,Y_train)
+    acc=nn.score(X_test, Y_test)*100
+    if acc<mini:
+        mini=acc
+    elif acc>maxa:
+        maxa=acc
+print('max ', maxa)
+print('min ', mini)
+
+############## inbuild
+
+from sklearn.neural_network import MLPClassifier
+
+clf= MLPClassifier(hidden_layer_sizes=(30,20,10,5,))
 clf.fit(X_train, Y_train)
+clf.score(X_test, Y_test)
